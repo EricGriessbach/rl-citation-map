@@ -1442,7 +1442,11 @@ function clamp01(x) {
 // ones as you zoom in, plus always reveal the label of the hovered/selected
 // node's group. "Always" mode shows them all.
 const LABEL_RATIO_ALL = 0.12; // camera ratio at/below which all labels show
-const LABEL_RATIO_FEW = 1.2; // ratio at/above which only the base set shows
+// A group is labelled once its on-screen area -- roughly size / ratio^2 -- is
+// large enough: at ratio 1 that means at least this fraction of the largest
+// group's size. Each zoom step then reveals the next tier of smaller groups.
+// Lower = more labels when zoomed out.
+const LABEL_SIZE_FRACTION = 0.3;
 const LABEL_BASE_COUNT = 5; // labels always shown when fully zoomed out
 const LABEL_GAP = 4; // px kept clear around each label in dynamic mode
 // In a time snapshot, only label a topic/community that has at least this many
@@ -1544,9 +1548,17 @@ function visibleLabelIds() {
   if (state.labelMode === "always") return new Set(order);
 
   const ratio = state.renderer.getCamera().getState().ratio;
-  const f = clamp01((LABEL_RATIO_FEW - ratio) / (LABEL_RATIO_FEW - LABEL_RATIO_ALL));
-  const count = Math.round(LABEL_BASE_COUNT + f * (order.length - LABEL_BASE_COUNT));
-  const visible = new Set(order.slice(0, Math.max(LABEL_BASE_COUNT, count)));
+  let visible;
+  if (ratio <= LABEL_RATIO_ALL) {
+    visible = new Set(order);
+  } else {
+    // order is sorted by size, largest first.
+    const data = state.activeLabelData;
+    const minSize = (data[order[0]]?.size || 0) * LABEL_SIZE_FRACTION * ratio * ratio;
+    let count = 0;
+    while (count < order.length && data[order[count]].size >= minSize) count += 1;
+    visible = new Set(order.slice(0, Math.max(LABEL_BASE_COUNT, count)));
+  }
 
   // Always reveal the group of the hovered/selected node (placed first, so it is
   // never the one skipped for overlapping).
