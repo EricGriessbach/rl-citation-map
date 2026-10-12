@@ -1,0 +1,1 @@
+{"default":"network","shared_dir":"network_data","views":[{"key":"network","label":"Citation network","dir":"network_data","subtitle":"Citation-network layout","snapshots":false,"groupings":[{"key":"community","label":"Community","legendLabel":"Communities","nodeField":"community","colorField":"community_color","noneLabel":"No community","citation":true}]}]}

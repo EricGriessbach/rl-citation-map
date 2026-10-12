@@ -1,0 +1,425 @@
+<!doctype html>
+<!-- SPDX-FileCopyrightText: 2026 Alfredo Hernández Inostroza and the Scientographer contributors
+     SPDX-License-Identifier: MIT -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reinforcement learning citation map</title>
+  <link rel="stylesheet" href="styles.css?v=9">
+
+  <!-- Tabulator -->
+  <link href="https://unpkg.com/tabulator-tables@6.3.1/dist/css/tabulator.min.css" rel="stylesheet">
+</head>
+<body>
+  <!-- Graph tab pane -->
+  <div id="view-graph" class="view active">
+    <div id="sigma-container"></div>
+
+    <!-- Floating cluster name labels -->
+    <div id="cluster-labels"></div>
+
+    <!-- Color scale for the "Integration" color mode (shown only in that mode) -->
+    <div id="integration-scale" hidden>
+      <span>more separate</span>
+      <span class="scale-bar"></span>
+      <span>more integrated</span>
+    </div>
+
+    <!-- Hover tooltip -->
+    <div id="tooltip" hidden></div>
+  </div>
+
+  <!-- Table tab pane -->
+  <!-- <div id="view-table" class="view">
+    <div id="table-wrap" class="panel">
+      <div class="table-filter-row">
+        <select id="table-filter-field">
+          <option value=""></option>
+          <option value="title">Paper</option>
+          <option value="authors">Author</option>
+          <option value="indegree">Citations</option>
+          <option value="year">Year</option>
+          <option value="journal">Journal</option>
+          <option value="doi">DOI</option>
+        </select>
+
+        <select id="table-filter-type">
+          <option value="like">Contains</option>
+          <option value="=">=</option>
+          <option value="<"><</option>
+          <option value="<="><=</option>
+          <option value=">">></option>
+          <option value=">=">>=</option>
+          <option value="!=">!=</option>
+        </select>
+
+        <input id="table-filter-value" type="text" placeholder="value to filter">
+        <button id="table-filter-clear">Clear Filter</button>
+      </div>
+
+      <div id="papers-table"></div>
+    </div>
+  </div> -->
+
+  <!-- Resolution-metrics tab pane: whole-graph clustering-quality metrics vs.
+       Leiden/CPM resolution (community_quality_metrics.py), rendered as a grid
+       of small-multiple charts. Hidden entirely if a dataset has no
+       resolution_metrics.json (see initMetricsTab). -->
+  <div id="view-metrics" class="view">
+    <div id="metrics-wrap" class="panel">
+      <div class="metrics-head">
+        <h2>Community-quality metrics by resolution</h2>
+        <p class="meta">How the Leiden/CPM partition's quality changes across the swept
+           resolutions &mdash; use this to judge which resolution(s) give the most robust,
+           meaningful community structure. Click any point to color the map by that
+           resolution's communities.</p>
+      </div>
+      <div id="metrics-grid"></div>
+
+      <!-- Well-connectedness diagnostic (community_connectivity_metrics.py) and
+           the Connectivity Modifier before/after (community_connectivity_modifier.py),
+           via connectivity_metrics.json. Hidden if that file is absent. -->
+      <section id="view-connectivity-section" hidden>
+        <div class="metrics-head">
+          <h2>Well-connectedness &amp; the Connectivity Modifier</h2>
+          <p class="meta">A community is <strong>well-connected</strong> only if its minimum edge cut
+             exceeds log<sub>10</sub>(n) &mdash; deleting a handful of edges shouldn&rsquo;t split it. The
+             <strong>Connectivity Modifier</strong> enforces that by trimming or splitting communities
+             that fail. These panels show the diagnostic and what remediation costs; the before/after
+             lines on the charts above are that same remediation scored on every quality metric.</p>
+        </div>
+        <div id="connectivity-grid" class="metrics-grid-like"></div>
+      </section>
+
+      <!-- Per-community health: are the detected communities real, or artifacts?
+           Driven by community_distributions.json (every community, including the
+           singletons that never reach the map legend). Hidden if absent. -->
+      <section id="view-health-section" hidden>
+        <div class="metrics-head">
+          <h2>Are these real communities, or artifacts?</h2>
+          <p class="meta">Most of what Leiden reports as a &ldquo;community&rdquo; at any resolution
+             is a single paper or a 2&ndash;3 paper fragment, and no descriptive metric flags them
+             &mdash; a 2-paper mutually-citing pair has internal edge density 1.0, which looks
+             perfect. <strong>Internal edge surprise</strong> is size-aware, so it separates
+             genuinely cohesive communities from trivially dense ones.</p>
+        </div>
+
+        <div id="health-summary"></div>
+
+        <h3 class="health-subhead">Across resolutions</h3>
+        <div id="health-across-grid" class="metrics-grid-like"></div>
+
+        <h3 class="health-subhead">At the selected resolution</h3>
+        <div class="health-controls">
+          <label>Histogram of
+            <select id="health-histogram-metric"></select>
+          </label>
+          <label>Scatter y-axis
+            <select id="health-scatter-metric"></select>
+          </label>
+          <label class="health-check">
+            <input id="health-exclude-singletons" type="checkbox"> Exclude singletons
+          </label>
+        </div>
+        <div id="health-selected-grid" class="metrics-grid-like"></div>
+
+        <div id="health-table"></div>
+      </section>
+
+      <!-- Per-community distinguishing keywords at the selected resolution
+           (community_keywords.json: community_keywords.py's corrected TF-IDF, or the
+           site's own TF-IDF fallback). Hidden if that file is absent. -->
+      <section id="view-keywords-section" hidden>
+        <div class="metrics-head">
+          <h2>What each community is about</h2>
+          <p class="meta" id="keywords-meta">Each community's keyword list is one document; the bars are
+             the keywords that most distinguish that community from the others at the selected
+             resolution. Click a community's name to open it on the map.</p>
+        </div>
+        <div id="keywords-grid" class="metrics-grid-like"></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Figures tab pane: pipeline figures (word clouds, ...) copied by build_website.py
+       and indexed in figures.json. Hidden entirely if that file is absent. -->
+  <div id="view-figures" class="view">
+    <div id="figures-wrap" class="panel">
+      <div class="metrics-head">
+        <h2>Figures from the pipeline</h2>
+        <p class="meta">Word clouds and other figures produced by the analysis DAGs. Figures are
+           tagged with the graph and community resolution they were computed on; those made on a
+           different graph than this map are marked, since their community ids do not line up
+           with the map's.</p>
+      </div>
+      <div class="health-controls">
+        <label class="health-check">
+          <input id="figures-follow-resolution" type="checkbox" checked> Only figures for the selected community resolution
+        </label>
+        <span class="meta" id="figures-count"></span>
+      </div>
+      <div id="figures-grid"></div>
+    </div>
+  </div>
+
+  <!-- Word map tab pane (wordmap.js): where words sit on every view of the map,
+       as smoothed densities of the papers whose abstract / keywords match. -->
+  <div id="view-wordmap" class="view">
+    <div id="wordmap-wrap" class="panel">
+      <div class="metrics-head">
+        <h2>Word maps</h2>
+        <p class="meta">Where words sit on the map, computed live: papers whose text matches are smoothed
+           into a density over each view (a fixed-bandwidth kernel density), normalised to each panel's
+           peak. Rows are the map's views, columns the text searched. <em>Enrichment</em> divides by the
+           density of all papers, so it shows where a word is over-represented rather than where papers
+           are many.</p>
+      </div>
+      <div class="wm-controls">
+        <div class="wm-ctl wm-grow">
+          <label for="wm-words">Words (several are OR'd together; "quote a phrase")</label>
+          <input id="wm-words" type="text" value="cerebellum" spellcheck="false"
+                 placeholder='bird   or   "motor imagery"   or   zebra birdsong'>
+        </div>
+        <div class="wm-ctl"><label for="wm-match">Match</label><select id="wm-match"></select></div>
+        <div class="wm-ctl">
+          <label for="wm-weight">Weight</label>
+          <select id="wm-weight">
+            <option value="presence">presence</option>
+            <option value="count">count</option>
+            <option value="log">log(1+count)</option>
+            <option value="rate">per 1000 words</option>
+          </select>
+        </div>
+        <div class="wm-ctl">
+          <label for="wm-mode">Colour</label>
+          <select id="wm-mode">
+            <option value="density">density</option>
+            <option value="enrichment">enrichment</option>
+          </select>
+        </div>
+        <div class="wm-ctl">
+          <label for="wm-bw">Bandwidth <span id="wm-bw-val">2.0%</span></label>
+          <input id="wm-bw" type="range" min="5" max="60" value="20">
+        </div>
+        <div class="wm-ctl">
+          <label for="wm-resolution">Community resolution</label>
+          <select id="wm-resolution" title="The same setting as on the Graph tab: it chooses the communities named under each panel and, with the filter on, which papers count"></select>
+        </div>
+        <label class="wm-check" title="The same filter as on the Graph tab: only papers in well-connected communities at this resolution"><input id="wm-well-connected" type="checkbox" checked> well-connected papers only</label>
+        <label class="wm-check"><input id="wm-dots" type="checkbox" checked> paper dots</label>
+        <label class="wm-check"><input id="wm-rings" type="checkbox"> match rings</label>
+      </div>
+      <div class="wm-forms" id="wm-forms"></div>
+      <div id="wm-status">Open this tab to load the word maps.</div>
+      <div class="wm-grid" id="wm-grid"></div>
+    </div>
+  </div>
+
+  <!-- Controls panel -->
+  <div id="controls" class="panel collapsed">
+    <button id="controls-toggle" class="icon-btn" type="button" aria-label="Show controls">⟩</button>
+    
+    <div class="topline">
+      <div class="titleblock">
+        <h1>Reinforcement learning citation map</h1>
+        <p class="subtitle" id="subtitle"></p>
+      </div>
+
+      <div class="tabs">
+        <button id="tab-graph" class="tab active" type="button">Graph</button>
+        <button id="tab-metrics" class="tab" type="button" hidden>Metrics</button>
+        <button id="tab-figures" class="tab" type="button" hidden>Figures</button>
+        <button id="tab-wordmap" class="tab" type="button">Word map</button>
+        <!-- <button id="tab-table" class="tab" type="button">Table</button> -->
+      </div>
+    </div>
+
+    <input id="search" type="search" placeholder="Search title, author, DOI...">
+    <ul id="search-results" hidden></ul>
+
+    <div class="selected-count" id="selected-count">Nodes selected: —</div>
+
+    <button id="apply-filters" class="primary" type="button">Filter</button>
+
+    <!-- Global filters (v1-like) -->
+    <input id="filter-title" type="search" placeholder="Filter by publication...">
+    <input id="filter-author" type="search" placeholder="Filter by author(s), comma-separated...">
+    <input id="filter-abstract" type="search" placeholder="Filter by abstracts (openly licensed only)...">
+    <input id="filter-journal" type="search" placeholder="Filter by journal...">
+    <input id="filter-keywords" type="search" placeholder="Filter by keywords, comma-separated...">
+    <!-- Shown only when the papers carry MeSH terms (e.g. a PubMed corpus). -->
+    <input id="filter-mesh" type="search" placeholder="Filter by MeSH terms, comma-separated..." hidden>
+
+    <div class="control-row">
+      <label>Text matching</label>
+      <select id="match-mode" title="How search and filters match text: whole words (with plurals), word beginnings, anywhere, or a regular expression. Comma-separated queries must all match."></select>
+    </div>
+
+    <div class="control-row">
+      <label>Year <span id="year-readout"></span></label>
+      <input id="year-min" type="range">
+      <input id="year-max" type="range">
+    </div>
+
+    <div class="control-row" hidden>
+      <label>View</label>
+      <select id="dataset-select">
+        <option value="network">Citation network</option>
+      </select>
+    </div>
+
+    <div class="control-row" id="snapshot-row" hidden>
+      <label>Time</label>
+      <select id="snapshot-select"></select>
+    </div>
+
+    <div class="control-row">
+      <label>Color by</label>
+      <select id="color-by"></select>
+    </div>
+
+    <div class="control-row" id="community-resolution-row" hidden>
+      <label>Community resolution</label>
+      <select id="community-resolution"></select>
+    </div>
+
+    <div class="control-row checkbox-row" id="well-connected-row" hidden>
+      <label title="At each resolution the Connectivity Modifier keeps the papers that sit in a well-connected community (minimum cut above log10 of its size) of at least 11 papers. Uncheck to show every paper.">
+        <input id="well-connected-only" type="checkbox" checked> Well-connected papers only
+      </label>
+      <span class="meta well-connected-note" id="well-connected-note"></span>
+    </div>
+
+    <div class="control-row">
+      <label>Orientation</label>
+      <div class="orientation-buttons">
+        <button id="rotate-left" type="button" title="Rotate the map 15° counter-clockwise" aria-label="Rotate left">&#x27F2;</button>
+        <button id="rotate-right" type="button" title="Rotate the map 15° clockwise" aria-label="Rotate right">&#x27F3;</button>
+        <button id="flip-horizontal" type="button" title="Mirror the map left–right" aria-label="Flip horizontally">&#x21C6;</button>
+        <button id="flip-vertical" type="button" title="Mirror the map top–bottom" aria-label="Flip vertically">&#x21C5;</button>
+        <button id="orientation-reset" type="button" title="Back to the original orientation" aria-label="Reset orientation">Reset</button>
+      </div>
+    </div>
+
+    <div class="control-row export-row">
+      <label>Export image</label>
+      <div class="export-options">
+        <select id="export-area" aria-label="Area to export">
+          <option value="view">View</option>
+          <option value="all">Whole map</option>
+        </select>
+        <select id="export-size" aria-label="Image size (long side)">
+          <option value="4000">4,000 px</option>
+          <option value="8000" selected>8,000 px</option>
+          <option value="12000">12,000 px</option>
+        </select>
+        <select id="export-edges" aria-label="Citation edges">
+          <option value="none">No edges</option>
+          <option value="straight">Straight edges</option>
+          <option value="curved">Curved edges</option>
+        </select>
+        <select id="export-background" aria-label="Image background">
+          <option value="transparent-light">Transparent, for white pages</option>
+          <option value="transparent">Transparent, for dark slides</option>
+          <option value="white">White background</option>
+          <option value="dark">Dark background</option>
+        </select>
+      </div>
+      <div class="export-actions">
+        <select id="export-nodes" aria-label="Node size">
+          <option value="1">Nodes</option>
+          <option value="0.35">Small nodes</option>
+          <option value="0">No nodes</option>
+        </select>
+        <select id="export-labels" aria-label="Community labels">
+          <option value="centre">Labels inside</option>
+          <option value="border">Labels around</option>
+          <option value="none">No labels</option>
+        </select>
+        <button id="export-png" type="button">Export PNG</button>
+      </div>
+    </div>
+
+    <div class="control-row">
+      <label>Labels</label>
+      <select id="label-mode">
+        <option value="dynamic">Dynamic (zoom / hover)</option>
+        <option value="always">Always visible</option>
+      </select>
+    </div>
+
+    <div class="control-row checkbox-row">
+      <label><input id="bridge-toggle" type="checkbox"> Highlight bridge papers</label>
+    </div>
+
+    <div class="control-row checkbox-row">
+      <label><input id="edges-toggle" type="checkbox"> Show citation edges</label>
+    </div>
+
+    <div class="control-row checkbox-row">
+      <label><input id="intra-toggle" type="checkbox"> Intra-topic citation islands</label>
+    </div>
+
+    <!-- One <details> legend block per grouping is generated here per dataset. -->
+    <div id="legends"></div>
+
+    <details class="about">
+      <summary>About this map</summary>
+      <p>Each dot is a paper; dot size is total citation degree. Positions come
+         from the citation graph's layout (papers that cite each other are pulled
+         together), so position reflects <strong>citation structure</strong>.</p>
+      <p>Use <strong>Color by</strong> to recolor: the semantic
+         <strong>topic</strong> (from the text-embedding clustering written onto
+         the graph), the Leiden citation <strong>community</strong>, year, or
+         citation count.</p>
+      <p><strong>Hover</strong> any paper for its title, year and authors.
+         <strong>Click</strong> a paper to draw its citation links and open the
+         side panel. Toggle <strong>citation edges</strong> to see where the
+         citation graph crosses the layout &mdash; on the embedding maps, long
+         edges connect papers cited together but semantically distant.</p>
+      <p>Toggle <strong>Intra-topic citation islands</strong> to reveal where a
+         topic's papers split into separate citing groups: within each topic, the
+         citation links among its own papers are broken into connected
+         components, and every multi-paper component beyond the largest is
+         enlarged as an &ldquo;island&rdquo; so it stands out. When you
+         <strong>colour by topic</strong> the islands are also recoloured
+         (main body keeps the topic colour, islands get a bright palette, papers
+         citing nothing within the topic are greyed); when you colour by
+         <strong>community, year or citations</strong> that colouring is kept, so
+         you can see e.g. which community each island belongs to. Several islands
+         in one topic means papers that share a subject but form separate,
+         non-citing literatures.</p>
+      <p>The Leiden/CPM citation communities were swept across several
+         resolutions; use <strong>Community resolution</strong> to switch which
+         one colours the map (a higher resolution splits papers into more,
+         smaller communities). The <strong>Metrics</strong> tab shows how
+         clustering quality (modularity, stability across reseeding, etc.)
+         changes across that sweep, to help judge which resolution is most
+         meaningful.</p>
+    </details>
+  </div>
+
+  <!-- Right-side detail panel -->
+  <aside id="detail" class="panel" hidden>
+    <button id="detail-close" aria-label="Close" type="button">&times;</button>
+    <div id="detail-body"></div>
+  </aside>
+
+  <!-- Loading overlay -->
+  <div id="loading">Loading map...</div>
+
+  <!-- Guided tour launcher -->
+  <button id="start-tour" type="button"><span class="tour-icon">?</span> Guided tour</button>
+
+  <!-- Tabulator JS -->
+  <script src="https://unpkg.com/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
+
+  <!-- App -->
+  <script type="module" src="main.js?v=31"></script>
+  <!-- Guided tour (independent of main.js; only reads the DOM) -->
+  <script type="module" src="tour.js?v=2"></script>
+  <!-- Word map tab (lazy: loads its data the first time the tab is opened) -->
+  <script type="module" src="wordmap.js?v=3"></script>
+</body>
+</html>
